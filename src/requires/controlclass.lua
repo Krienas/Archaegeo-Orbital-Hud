@@ -1,5 +1,5 @@
 function ControlClass(Nav, c, u, s, atlas, vBooster, hover, antigrav, shield, dbHud_2, gyro, screenHud_1,
-    isRemote, navCom, sysIsVwLock, sysLockVw, sysDestWid, round, stringmatch, tonum, uclamp, play, saveableVariables, SaveDataBank, msg)
+    isRemote, navCom, sysIsVwLock, sysLockVw, sysDestWid, round, stringmatch, tonum, uclamp, play, saveableVariables, SaveDataBank, msg, transponder, jencode)
     local C = DUConstruct
     local Control = {}
     local UnitHidden = true
@@ -8,6 +8,7 @@ function ControlClass(Nav, c, u, s, atlas, vBooster, hover, antigrav, shield, db
     local currentHoldAltModifier = holdAltitudeButtonModifier
     local currentAggModifier = antiGravButtonModifier
     local clearAllCheck = time
+    local aLdoubleclick = time
 
     function Control.landingGear(eLL)
         GearExtended = not GearExtended
@@ -42,7 +43,6 @@ function ControlClass(Nav, c, u, s, atlas, vBooster, hover, antigrav, shield, db
                 navCom:activateGroundEngineAltitudeStabilization(currentGroundAltitudeStabilization)
                 navCom:setTargetGroundAltitude(LandingGearGroundHeight)
                 AltitudeHold = false
-                HoverMode = false
             elseif hasGear and not BrakeLanding  then
                 play("grOut","LG",1)
                 Nav.control.deployLandingGears() -- Actually extend
@@ -107,17 +107,8 @@ function ControlClass(Nav, c, u, s, atlas, vBooster, hover, antigrav, shield, db
                     else
                         if holdingShift and inAtmo then
                             HoldAltitude = nextTargetHeight(HoldAltitude, down)
-                            HoverMode = false 
                         else
                             HoldAltitude = HoldAltitude + mult*holdAltitudeButtonModifier
-                            if HoverMode then 
-                                if HoldAltitude > 100 then 
-                                    HoverMode = false 
-                                else
-                                    navCom:updateTargetGroundAltitudeFromActionStart(mult*1.0)
-                                    HoverMode = Nav:getTargetGroundAltitude()
-                                end
-                            end
                         end
                     end
                 else
@@ -273,7 +264,7 @@ function ControlClass(Nav, c, u, s, atlas, vBooster, hover, antigrav, shield, db
                 else
                     showHud = true
                 end
-                if RADAR then RADAR.ToggleRadarPanel() end
+                --if RADAR then RADAR.ToggleRadarPanel() end
             end
         elseif action == "option4" then
             toggleView = false      
@@ -285,10 +276,34 @@ function ControlClass(Nav, c, u, s, atlas, vBooster, hover, antigrav, shield, db
                 return
             end
             ReversalIsOn = nil
+            if not inAtmo and (AutopilotTargetIndex > 0 or #apRoute>0) and not Autopilot and not VectorToTarget and not spaceLaunch and not IntoOrbit then
+                AP.cmdThrottle(1)
+            end
             AP.ToggleAutopilot()
         elseif action == "option5" then 
             toggleView = false 
-            AP.ToggleLockPitch()
+            if AltIsOn and holdingShift then
+                alignTarget = false
+                AP.ToggleLockPitch()
+                return
+            end
+            if (time - aLdoubleclick) < 1.5 then
+                if alignTarget then
+                    alignTarget = -1
+                    msg ("Retrograde Alignment lock to "..AutopilotTargetName)
+                    return
+                end
+            end
+            aLdoubleclick = time
+            if alignTarget then
+                alignTarget = false
+                msg ("Alignment cancelled")
+            elseif not Autopilot and not VectorToTarget and not spaceLaunch and not IntoOrbit and not Reentry and not finalLand and not AltitudeHold then
+                alignTarget = 1
+                msg ("Alignment lock to "..AutopilotTargetName)
+            else
+                msg("Disengage autopilot before using Alignment Lock")
+            end
         elseif action == "option6" then
             toggleView = false 
             if AltIsOn and holdingShift then 
@@ -372,21 +387,34 @@ function ControlClass(Nav, c, u, s, atlas, vBooster, hover, antigrav, shield, db
                 sysLockVw(1)
             end
         elseif action == "booster" then
-            -- Dodgin's Don't Die Rocket Govenor - Cruise Control Edition
-            if VanillaRockets then 
-                Nav:toggleBoosters()
-            elseif not isBoosting then 
-                if not IsRocketOn then 
-                    Nav:toggleBoosters()
-                    IsRocketOn = true
+            if AltIsOn then
+                if transponder then
+                    transponder.toggle()
+                    if transponder.isActive() == 1 then
+                        msg("Transponder On")
+                    else
+                        msg("Transponder Off")
+                    end
+                else
+                    msg("No transponder found")
                 end
-                isBoosting = true
             else
-                if IsRocketOn then
+                -- Dodgin's Don't Die Rocket Govenor - Cruise Control Edition
+                if VanillaRockets then 
                     Nav:toggleBoosters()
-                    IsRocketOn = false
+                elseif not isBoosting then 
+                    if not IsRocketOn then 
+                        Nav:toggleBoosters()
+                        IsRocketOn = true
+                    end
+                    isBoosting = true
+                else
+                    if IsRocketOn then
+                        Nav:toggleBoosters()
+                        IsRocketOn = false
+                    end
+                    isBoosting = false
                 end
-                isBoosting = false
             end
         elseif action == "stopengines" then
             local function clearAll()         
@@ -404,7 +432,7 @@ function ControlClass(Nav, c, u, s, atlas, vBooster, hover, antigrav, shield, db
                     navCom:resetCommand(axisCommandId.longitudinal)
                     AP.cmdThrottle(0)
                 else
-                    AP.cmdThrottle(100)
+                    AP.cmdThrottle(1)
                 end
             else
                 if navCom:getTargetSpeed(axisCommandId.longitudinal) ~= 0 then
@@ -413,12 +441,12 @@ function ControlClass(Nav, c, u, s, atlas, vBooster, hover, antigrav, shield, db
                     if inAtmo then 
                         AP.cmdCruise(adjustedAtmoSpeedLimit) 
                     else
-                        AP.cmdCruise(MaxGameVelocity*3.6)
+                        AP.cmdCruise(adjMaxGameVelocity*3.6)
                     end
                 end
             end
         elseif action == "speedup" then
-            AP.changeSpd()
+                AP.changeSpd()
         elseif action == "speeddown" then
             AP.changeSpd(true)
         elseif action == "antigravity" and not ExternalAGG then
@@ -601,7 +629,9 @@ function ControlClass(Nav, c, u, s, atlas, vBooster, hover, antigrav, shield, db
                 "/iphWP - displays current IPH target's ::pos waypoint in lua chat\n"..
                 "/resist 0.15, 0.15, 0.15, 0.15 - Sets shield resistance distribution of the floating 60% extra available, usable once per minute\n"..
                 "/deletewp - Deletes current selected custom wp\n"..
-                "/createPrivate (all) - dumps private lcoations to screen if present to cut and paste to privatelocations.lua, all if present will make it include all databank locations."
+                "/createPrivate (all) - dumps private lcoations to screen if present to cut and paste to privatelocations.lua, all if present will make it include all databank locations.\n"..
+                "/trans (whatever) - shows the current transponder setting, whatever, if present, is the new tag that is set.\n"..
+                "/pipecenter - Shows a waypoint to closest pipe center and prints loc in lua chat and sets it to 1-Temp in IPH for use with autopilot"
         i = string.find(text, " ")
         command = text
         if i ~= nil and string.find(text, "::") ~= 1 then
@@ -632,12 +662,16 @@ function ControlClass(Nav, c, u, s, atlas, vBooster, hover, antigrav, shield, db
                 arguement = command
                 temp = true
             end
-            i = string.find(arguement, "::")
-            if not temp then savename = string.sub(arguement, 1, i-2) end
-            local pos = string.sub(arguement, i)
-            pos = pos:gsub("%s+", "")
-            AddNewLocationByWaypoint(savename, pos, temp)
-            elseif command == "/agg" then
+            if not alignTarget and not Autopilot and not VectorToTarget and not spaceLaunch and not IntoOrbit and not Reentry and not finalLand then
+                i = string.find(arguement, "::")
+                if not temp then savename = string.sub(arguement, 1, i-2) end
+                local pos = string.sub(arguement, i)
+                pos = pos:gsub("%s+", "")
+                AddNewLocationByWaypoint(savename, pos, temp)
+            else
+                msg("Disengage Autopilot before adding waypoints")
+            end
+        elseif command == "/agg" then
             if arguement == nil or arguement == "" then
                 msg ("Usage: /agg targetheight")
                 return
@@ -678,11 +712,11 @@ function ControlClass(Nav, c, u, s, atlas, vBooster, hover, antigrav, shield, db
                         if k=="AtmoSpeedLimit" then adjustedAtmoSpeedLimit = newGlobalValue end
                     end
                     msg ("Variable "..globalVariableName.." changed to "..newGlobalValue)
-                    if k=="MaxGameVelocity" then 
+                    if k=="MaxGameVelocity" and newGlobalValue ~= -1 then 
                         newGlobalValue = newGlobalValue/3.6
                         if newGlobalValue > MaxSpeed-0.2 then 
                             newGlobalValue = MaxSpeed-0.2 
-                            msg ("Variable "..globalVariableName.." changed to "..round(newGlobalValue*3.6,1))
+                            msg ("Updated "..globalVariableName.." changed to "..round(newGlobalValue*3.6,1))
                         end
                     end
                     if varType == "boolean" then
@@ -719,6 +753,18 @@ function ControlClass(Nav, c, u, s, atlas, vBooster, hover, antigrav, shield, db
             else
                 msg ("No target selected in IPH")
             end
+        elseif command == "/trans" then
+            if transponder then
+                if arguement == nil or arguement == "" then
+                    msg ("Current tag: "..jencode(transponder.getTags()))
+                    return
+                else
+                    transponder.setTags({arguement})
+                    msg ("Transponder tag set to: "..arguement)
+                end
+            else
+                msg ("No transponder found.")
+            end
         elseif command == "/createPrivate" then
             local saveStr = "privatelocations = {\n"
             local msgStr = ""
@@ -744,6 +790,24 @@ function ControlClass(Nav, c, u, s, atlas, vBooster, hover, antigrav, shield, db
             if screenHud_1 then screenHud_1.setHTML(saveStr) end
             msg (msgStr.."locations dumped to screen if present.\n Cut and paste to privatelocations.lua to use")
             msgTimer = 7
+        elseif command == "/pipecenter" then
+            if Autopilot then
+                msg("Disengage autopilot before using /pipecenter")
+            elseif pipePosC ~= nil then
+                local posP = pipePosC
+                local pos = "::pos{0,0,"..posP["x"]..","..posP["y"]..","..posP["z"].."}"
+                AddNewLocationByWaypoint("1-ClosestPipeCenter", pos, true)
+                if pipePosT then 
+                    posP = pipePosT
+                    pos = "::pos{0,0,"..posP["x"]..","..posP["y"]..","..posP["z"].."}"
+                    AddNewLocationByWaypoint("2-"..pipeDestT.name.."PipeCenter", pos, true)
+                    pos = worldPos + (pipeDestT.center - posP)
+                    pos = "::pos{0,0,"..pos["x"]..","..pos["y"]..","..pos["z"].."}"
+                    AddNewLocationByWaypoint("3-"..pipeDestT.name.."PipeParallel", pos, true)
+                end
+            else
+                msg("No Pipe Center known")
+            end
         end
     end
 

@@ -1,5 +1,117 @@
 ## ChangeLog - Most recent changes at the top
 
+Version 2.026 - Major improvements on AP throttle control
+- Refactor: Throttle/Cruise speed control to be more responsive.
+- Fixed: Intermittant but critical issue where cruise speed would set negative on re-entry.
+- Fixed: Issue with AP not completely resetting when exiting warp resulting in wierd alt-4 AP resume.
+
+Version 2.025
+- Change: AP Route re-align when at a route point in space at 2000k/hr (vice 5000k/hr)
+- Fixed: AP should not recalculate due to LOS conflict when it isnt a true conflict.
+- Fixed: AGG Singulartiy Altitude would not adjust to a new setting if > 200k in space, now it will.
+- Fixed: (Maybe) Autopilot not completely clearing out when cancelled, resulting in wierd performance 
+if restarted before getting out of seat
+- Fixed: Aegis is never considered "closest planet"
+
+Version 2.024
+- Fixed: Apparently I broke closest pipe and /pipecenter in one of the recent patches.  Working again.
+- Change: When pasting a temp location, the IPH will swap to position 1 (0-Temp) so you can just hit alt-4 to go to it.
+- Change: Prevent ability to paste waypoints in lua chat if currently in autopilot.
+- Fixed: When starting AP from cruise mode (alt-4) it will first switch to throttle mode. This prevents the 250000% throttle error.
+
+Version 2.023
+(Sorry about the frequent update - This one should sit for a bit and be the new standard)
+- Fixed: Yo-yo yawing should no longer occur when arriving at AP planet and orbit alignment pitches down -65 to reach orbit corridor quicker.
+- Fixed: IntoOrbit should pull out of -65 dive more reliably to avoid going below target orbit height (assuming your ship has good adjustors)
+- Reversed: Changed `ReEntryPitch` default back to -30 for extra safety, -60 will work for most ships, this does not affect
+Orbit Corridor pitch, but rather pitch when finishing orbit.
+
+Version 2.022 - AP enahncements.
+- CHANGE: HUD will now try to clear a LOS blockage more proactively by moving the arrival wp if needed.  It will change initial arrival WP to the
+one that would be used if just flying to the planet (vice surface landing) but will still then proceed to surface land.  This fixes Madis-Mission
+to Thades Market 1 for example without affecting normal AP.
+- CHANGE: User Variable `MaxGameVelocity` if set to -1 means always set AP max speed to current max speed.  If set > -1 then set AP Max speed 
+to `MaxGameVelocity`  Alt-Mousewheel will adjust set max speed and save it till you get into seat again.  NOTE: If `MaxGameVelocity` is -1 then
+Alt-Mousewheel will have no effect on max speed while in autopilot in space.
+- CHANGE: Make double MMB clear more features (cleaner turn off all AP)
+- CHANGE: After arriving on planet to planet AP, if target on ground, will use low orbit to get to it quicker.
+- ADDED: Required Thrust re-added to INFO panel.
+- CHANGE: Required Thrust and Safe XXX Mass numbers will update continuiously now based on gravity. If gravity > 0.1 then the detected value is used,
+otherwise will be based on 9.8m/s gravity. SAFE XXX numbers are still 50% of the actual value you could barely move.  WARNING: LEARN YOUR SHIP to know if they are valid numbers.
+- CHANGE: Default `ReEntryPitch` to -60.  Recommend changing with /G ReEntryPitch -60 in Lua Chat.  -30 still works, -60 gets you down quicker.
+- Fixed: Issue where sometimes HUD would not vector to target on re-entry till past it when it should have sooner. (Better AP re-entries)
+- Fixed: `Alt-Shift-5` to lockpitch at current pitch will work now.
+- Cleanup Route Display on Ultrawide monitors to not be under buttons.
+
+
+Version 2.021 
+- Fix: Thades AP issue. Moonlets should not long cause issues to the AP.  AP should work like anywhere else.
+Still use caution if taking off in the canyon (i.e. if you take off and face the wall to climb out, it will end in tears), 
+but all other AP including to orbit around moonlets and moons should be good.
+REMINDER: ArchHUD does not do auto AP ground to non-atmo ground (moonlets/moons) but will put you in orbit around them.
+- Fix: Flicking of Cruise/Travel on throttle indication when in AP in space.
+- Fix: Space points used in Route to only slow to < 5000 k/hr before redirecting (vice old slowing to < 180 k/hr)
+
+Version 2.020 - Performance improvement
+FIRST: Never use ArchHUD (or any Hud that draws on monitor) with in game settings "Graphics - Voxel Rendering" on Auto or with
+"Graphics - Number of Threads" at max.  It crushes fps on high element ships due to dedicating cores to voxels vice physics.
+I set mine to 2 of 10, and on a 527 element ship had fps go from 10 to 35 (ultra settings).
+SECOND: Anytime your FPS is low, hit alt-3 to hide the hud save for warning messages.  You will see about a 10-15 fps jump.  
+The hud has the same FPS as vanilla HUD though.
+- Refactor of hudclass to only update some things as needed vice every hudtickrate.
+- Fixed INFO panel to only update once a second.  Previously INFO panel was a 10 fps hit due to hudrate update.
+- Removed FPS from INFO panel, not needed. Recommend using windows game panel or RivaTuner Statistics Server for FPS
+- Fix Info box scaling different ratios (i.e. 21:9).  If text overflows outside box, increase OrbitMapSize variable.
+- Moved pipe calculations from HUD to AP so hudclass.lua remains optional
+
+Version 2.019 - Enhance Pipe Support
+- Moons are now considered for pipes.
+- Pipe info now shows Closest Pipe and Target Pipe. 
+    - Closest pipe is the closest pipe at your location to the closest planet
+    - Target pipe is the pipe at your location from closest planet to IPH target planet, if IPH is not a Space location or same planet as closest planet.
+- /pipecenter now sets the following temporary locations in IPH:
+    - `1-ClosetPipeCenter`: to center of closest pipe.
+    - `2-NamePipeCenter`: to center of target planet pipe.
+    - `3-NamePipeParallel`: to destination at Name that is parallel to the pipe (closest pipe planet if no target on IPH), 
+            at your current distance from the center of that pipe.  I.E. for flying X distance from pipe whole way to avoid triangle entry.
+    These IPH locations do not update until you use /pipecenter again
+- Added Aegis as a default atlas location, like a planet. - WARNING - AP to that default location is the same as the location in F4 bookmarks,
+    Use at your own risk as a direct AP as there is a lot of garbage around.
+
+Version 2.018 - Enhanced pipe clear support (Thanks Koruzarius for the math help)
+- `/pipecenter` now names temp targets in IPH as 1-PipeCenter and 2-PipeParallel
+- 2-PipeParallel, if used with AP, will set your destination at the target planet the same distance you are currently from center of pipe.
+    USAGE: Say your pipe says Pipe (Alioth - Teoma): 5su and you type /pipecenter in lua chat.
+        1-PipeCenter would be the location of the pipe center from you
+        2-PipeParallel would be a location 5su from Teoma.
+        Remember to `/pipecenter` initially to `Alt-5-5` away from `1-PipeCenter`, then once at desired distance, use `/pipecenter` again
+        and then `Alt-4` to AP to the `2-PipeParallel` position
+
+Version 2.017 - New Features (Pipecenter, lock alignment, Transponder support)
+- New Feature: New lua chat command - `/pipecenter` - Shows a waypoint to closest pipe center, prints loc in lua chat, 
+    and sets it to 1-Temp in IPH for use with autopilot/alignment
+    - Used to get to center of, or to move 180 away from, center of closest pipe
+- New Feature: IPH Target alignment lock. Will allow easy travel towards or away from an IPH location, maintaining alignment (or retrograde alignment)
+    - `Alt-5` locks alignment to IPH target if not in some mode of autopilot.
+    - `Alt-5-5` locks retrograde alignment to IPH target if not in some mode of autopilot
+    - `Alt-5` again after locking, or starting any autopilot mode, or hitting brakes, will cancel alignment.
+NOTE: Use Alignment Lock at your own risk in atmosphere.
+- Change: Lock Pitch feature changed to alt-shift-5.  Will now lock to current pitch.
+- Removed: `LockPitchTarget` from user variables.
+- Removed HELP window - RTFM instead :) (The manual exists and code space savings was needed)
+- Added Space Engine Altitude value to IPH
+- Added support for manually linked transponders. To use the below features, link the transponder to control unit, then rerun Archhud autoconf.
+- If a transponder is linked to the seat, then the following are available:
+    - A new command, /trans.  `/trans` shows current transponder tag.  `/trans whatever` sets the transponder tag to `whatever`.
+    - Pressing `Alt-B` will toggle the transponder On or Off.
+NOTE: Currently changing a transponders tag does not broadcast the new tag till you log out and back in. Same for deactivating or activating, doesnt update on the fly (NQ Issue)
+
+
+Version 2.016 
+- Added Talemai minimum space engine altitude (affects low orbit, 11% altitude, and other factors)
+- Removed HoverMode - It was gimmicky and poorly implemented (by me) (This was an attempt to make ship act like a hover vehicle)
+- Fix: Prevent duplicate msg spam, again, I think.
+
 Version 2.015 - I HATE YOU ALL
 - Added "Fast Orbit" support.  Usage: USE AT OWN RISK. THIS WILL PROBABLY RESULT IN YOUR SHIPS DESTRUCTION.  YOU WERE WARNED.
     If `MaintainOrbit` is true, and `FastOrbit` is set to > 0.0, then Orbit speed will be equal to 

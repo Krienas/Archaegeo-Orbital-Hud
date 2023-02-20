@@ -335,8 +335,8 @@
             local minDistance2, body
             local coord = vec3(coordinates)
             for _, params in pairs(self) do
-                local distance2 = (params.center - coord):len2()
-                if (not body or distance2 < minDistance2) and params.name ~= "Space" then -- Never return space.  
+                local distance2 = (coord - params.center):len() - params.radius - params.atmosphereThickness
+                if (not body or distance2 < minDistance2) and params.name ~= "Space" and params.name ~= "Aegis" then -- Never return space or Aegis  
                     body = params
                     minDistance2 = distance2
                 end
@@ -791,7 +791,6 @@
                 else
                     _, AutopilotEndSpeed = Kep(autopilotTargetPlanet):escapeAndOrbitalSpeed(AutopilotTargetOrbit)
                 end
-                AutopilotPlanetGravity = 0 -- This is inaccurate unless we integrate and we're not doing that.  
                 AutopilotAccelerating = false
                 AutopilotBraking = false
                 AutopilotCruising = false
@@ -803,7 +802,7 @@
             end
 
             local function adjustAutopilotTargetIndex(up)
-                if not Autopilot and not VectorToTarget and not spaceLaunch and not IntoOrbit and not Reentry and not finalLand then -- added to prevent crash when index == 0
+                if not alignTarget and not Autopilot and not VectorToTarget and not spaceLaunch and not IntoOrbit and not Reentry and not finalLand then -- added to prevent crash when index == 0
                     if up == nil then 
                         AutopilotTargetIndex = AutopilotTargetIndex + 1
                         if AutopilotTargetIndex > #AtlasOrdered then
@@ -887,6 +886,7 @@
                         -- Nearest planet, gravity also important - if it's 0, we don't autopilot to the target planet, the target isn't near a planet.                      
                         table.insert(atlas[0], newLocation)
                         UpdateAtlasLocationsList()
+                        if temp then AutopilotTargetIndex = 1 end
                         UpdateAutopilotTarget() -- This is safe and necessary to do right?
                         -- Store atmosphere so we know whether the location is in space or not
                         msg ("Location saved as " .. name.."("..p.name..")")

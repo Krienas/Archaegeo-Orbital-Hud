@@ -1,4 +1,4 @@
-function programClass(Nav, c, u, atlas, vBooster, hover, telemeter_1, antigrav, dbHud_1, dbHud_2, radar_1, radar_2, shield, gyro, warpdrive, weapon, screenHud_1)
+function programClass(Nav, c, u, atlas, vBooster, hover, telemeter_1, antigrav, dbHud_1, dbHud_2, radar_1, radar_2, shield, gyro, warpdrive, weapon, screenHud_1, transponder)
     local s = DUSystem
     local C = DUConstruct
     local P = DUPlayer
@@ -83,7 +83,7 @@ function programClass(Nav, c, u, atlas, vBooster, hover, telemeter_1, antigrav, 
         local function msg(msgt)
             if not msgt then return end
             if msgText ~= "empty" then 
-                if msgText ~= msgt then 
+                if not string.find(msgText, msgt) then 
                     msgText = msgText.."\n"..msgt
                     msgTimer = 7 
                 end
@@ -208,7 +208,7 @@ function programClass(Nav, c, u, atlas, vBooster, hover, telemeter_1, antigrav, 
                     if valuesAreSet then
                         msg ("Loaded Saved Variables")
                     elseif not useTheseSettings then
-                        msg ("No Databank Saved Variables Found\nVariables will save to Databank on standing")
+                        msg ("Databank Found, No Saved Variables Found\nVariables will save to Databank on standing")
                         msgTimer = 5
                     end
                     if #SavedLocations>0 then customlocations = addTable(customlocations, SavedLocations) end
@@ -239,7 +239,9 @@ function programClass(Nav, c, u, atlas, vBooster, hover, telemeter_1, antigrav, 
                     if #privatelocations>0 then customlocations = addTable(customlocations, privatelocations) end
                 end
                 VectorStatus = "Proceeding to Waypoint"
-                if not MaxGameVelocity or MaxGameVelocity < 0 then MaxGameVelocity = C.getMaxSpeed()-0.1 end
+                if MaxGameVelocity == -1 then 
+                    adjMaxGameVelocity = C.getMaxSpeed()
+                end
             end
 
             local function ProcessElements()
@@ -505,11 +507,45 @@ function programClass(Nav, c, u, atlas, vBooster, hover, telemeter_1, antigrav, 
                             }
                 end
 
-                local altTable = { [1]=6637, [2]=3426, [26]=4242, [27]=4150, [3]=21452, [8]=3434, [9]=5916 } -- Measured min space engine altitudes for Madis, Alioth, Sanctuary, Haven, Thades, Teoma, Jago
+                local function getAegisEntry()
+                    return {
+                                id = 1000,
+                                name = { "Aegis", "Aegis", "Aegis"},
+                                type = {},
+                                biosphere = {},
+                                classification = {},
+                                habitability = {},
+                                description = {},
+                                iconPath = "",
+                                hasAtmosphere = false,
+                                isSanctuary = false,
+                                isInSafeZone = true,
+                                systemId = 0,
+                                positionInSystem = 1000,
+                                satellites = {},
+                                center = {13856549.3576,7386341.6738,-258459.8925},
+                                gravity = 0,
+                                radius = 0,
+                                atmosphereThickness = 0,
+                                atmosphereRadius = 0,
+                                surfaceArea = 0,
+                                surfaceAverageAltitude = 0,
+                                surfaceMaxAltitude = 0,
+                                surfaceMinAltitude = 0,
+                                GM = 0,
+                                ores = {},
+                                territories = 0,
+                                noAtmosphericDensityAltitude = 0,
+                                spaceEngineMinAltitude = 0,
+                            }
+                end
+
+                local altTable = { [1]=6637, [2]=3426, [4]=7580, [26]=4242, [27]=4150, [3]=21452, [8]=3434, [9]=5916 } -- Measured min space engine altitudes for Madis, Alioth, Talemai, Sanctuary, Haven, Thades, Teoma, Jago
                 for galaxyId,galaxy in pairs(atlas) do
                     -- Create a copy of Space with the appropriate SystemId for each galaxy
                     atlas[galaxyId][0] = getSpaceEntry()
                     atlas[galaxyId][0].systemId = galaxyId
+                    atlas[galaxyId][1000] = getAegisEntry()
                     atlasCopy[galaxyId] = {} -- Prepare a copy galaxy
 
                     for planetId,planet in pairs(atlas[galaxyId]) do
@@ -592,13 +628,13 @@ function programClass(Nav, c, u, atlas, vBooster, hover, telemeter_1, antigrav, 
                 HUD.ButtonSetup() 
             end
             CONTROL = ControlClass(Nav, c, u, s, atlas, vBooster, hover, antigrav, shield, dbHud_2, gyro, screenHud_1,
-                isRemote, navCom, sysIsVwLock, sysLockVw, sysDestWid, round, stringmatch, tonum, uclamp, play, saveableVariables, SaveDataBank, msg)
+                isRemote, navCom, sysIsVwLock, sysLockVw, sysDestWid, round, stringmatch, tonum, uclamp, play, saveableVariables, SaveDataBank, msg, transponder, jencode)
             if shield then SHIELD = ShieldClass(shield, stringmatch, mfloor, msg) end
             coroutine.yield()
             u.hideWidget()
             s.showScreen(1)
             s.showHelper(0)
-            if screenHud_1 then screenHud_1.clear() end
+            if screenHud_1 then screenHud_1.setCenteredText("") end
             -- That was a lot of work with dirty strings and json.  Clean up
             collectgarbage("collect")
             -- Start timers
@@ -611,7 +647,7 @@ function programClass(Nav, c, u, atlas, vBooster, hover, telemeter_1, antigrav, 
             C.setDockingMode(DockingMode)
             if shield then u.setTimer("shieldTick", 0.0166667) end
             if userBase then PROGRAM.ExtraOnStart() end
-            play("start","SU")
+
             local function ecuResume()
                 if ecuThrottle[1] == 0 then
                     AP.cmdThrottle(ecuThrottle[2])
@@ -650,6 +686,7 @@ function programClass(Nav, c, u, atlas, vBooster, hover, telemeter_1, antigrav, 
             dockmsg = #passengers>1 and "Passengers: "..(#passengers-1).." " or ""
             dockmsg = dockmsg..(#ships>0 and "Ships: "..#ships or "")
             if dockmsg ~= "" then msg("NOTICE: Docked "..dockmsg) end
+            play("start","SU")
         end)
         coroutine.resume(beginSetup)
     end
