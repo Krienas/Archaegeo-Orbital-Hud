@@ -36,7 +36,7 @@ function APClass(Nav, c, u, atlas, vBooster, hover, telemeter_1, antigrav, dbHud
         local setCruiseSpeed = nil
         local hSpd = 0
         local eLL = false
-        local sivl = 0
+        local sivl = false
         local AutopilotPaused = false
         local initBL = false
         local swp = false
@@ -48,9 +48,10 @@ function APClass(Nav, c, u, atlas, vBooster, hover, telemeter_1, antigrav, dbHud
         local parseRadar = false
         local lastMouseTime = 0
         local shipsMass = 0
+        local throtValue = u.getThrottle()
 
         local function safeZone() -- Thanks to @SeM for the base code, modified to work with existing Atlas
-            return (C.isInPvPZone()~=1), mabs(C.getDistanceToSafeZone())
+            return (not C.isInPvPZone()), mabs(C.getDistanceToSafeZone())
         end
         local function GetAutopilotBrakeDistanceAndTime(speed)
             -- If we're in atmo, just return some 0's or LastMaxBrake, whatever's bigger
@@ -110,7 +111,7 @@ function APClass(Nav, c, u, atlas, vBooster, hover, telemeter_1, antigrav, dbHud
             end
             local hovGndDet = hoverDetectGround()  
             local groundDistance = -1
-            if antigrav and antigrav.isActive() == 1 and not ExternalAGG and velMag < minAutopilotSpeed then
+            if antigrav and antigrav.isActive() and not ExternalAGG and velMag < minAutopilotSpeed then
                 local diffAgg = mabs(coreAltitude - antigrav.getBaseAltitude())
                 if diffAgg < 50 then return diffAgg end
             end
@@ -302,9 +303,35 @@ function APClass(Nav, c, u, atlas, vBooster, hover, telemeter_1, antigrav, dbHud
         return showWaypoint(planet, coordinates, dontSet)
     end
 
+    local throtAxis = s.getAxisValue(3)
+    local latAxis = s.getAxisValue(4)
+    local vertAxis = s.getAxisValue(5)
+
     function ap.APTick()
         local wheel = s.getMouseWheel()
-
+        if throttleMode then
+            local gav = s.getAxisValue(3)
+            if gav ~= throtAxis then 
+                 if AtmoSpeedAssist then 
+                    PlayerThrottle = gav 
+                else 
+                    navCom:setThrottleCommand(axisCommandId.longitudinal, gav) 
+                end
+                throtAxis = gav
+            end
+            gav = s.getAxisValue(4)
+            if gav ~= latAxis then
+                navCom:setThrottleCommand(axisCommandId.lateral, gav)
+                LeftAmount = gav
+                latAxis = gav
+            end
+            gav = s.getAxisValue(5)
+            if gav ~= vertAxis then
+                navCom:setThrottleCommand(axisCommandId.vertical, gav)
+                upAmount = gav
+                vertAxis = gav
+            end
+        end
         if wheel > 0 then
             AP.changeSpd()
         elseif wheel < 0 then
@@ -400,6 +427,7 @@ function APClass(Nav, c, u, atlas, vBooster, hover, telemeter_1, antigrav, dbHud
                 AltitudeHold = true
                 upAmount = 0
                 Nav:setEngineForceCommand('thrust analog vertical fueled ', vec3(), 1)
+                AP.cmdThrottle(1)
                 AP.cmdCruise(mfloor(adjustedAtmoSpeedLimit))
             end
         else
@@ -912,8 +940,8 @@ function APClass(Nav, c, u, atlas, vBooster, hover, telemeter_1, antigrav, dbHud
                 end
             end
             local speed = velMag
-            local throttle = u.getThrottle()/100
-            if AtmoSpeedAssist then throttle = PlayerThrottle end
+            local throttle = (AtmoSpeedAssist and PlayerThrottle) or throtValue/100
+
             local accelDistance, accelTime =
                 Kinematic.computeDistanceAndTime(velMag, adjMaxGameVelocity, -- From currently velocity to max
                     coreMass, Nav:maxForceForward()*throttle, warmup, -- T50?  Assume none, negligible for this
@@ -1073,6 +1101,7 @@ function APClass(Nav, c, u, atlas, vBooster, hover, telemeter_1, antigrav, dbHud
             local currentAxisSpeedMS = coreVelocity:dot(axisCRefDirection)
         
             local targetAxisSpeedMS = targetSpeed * constants.kph2m
+
         
 
         
@@ -1211,10 +1240,17 @@ function APClass(Nav, c, u, atlas, vBooster, hover, telemeter_1, antigrav, dbHud
         brakeSpeedFactor = math.max(brakeSpeedFactor, 0.01)
         brakeFlatFactor = math.max(brakeFlatFactor, 0.01)
         autoRollFactor = math.max(autoRollFactor, 0.01)
+        throtValue = u.getThrottle()
         -- final inputs
-        local finalPitchInput = uclamp(pitchInput + pitchInput2 + s.getControlDeviceForwardInput(),-1,1)
-        local finalRollInput = uclamp(rollInput + rollInput2 + s.getControlDeviceYawInput(),-1,1)
-        local finalYawInput = uclamp((yawInput + yawInput2) - s.getControlDeviceLeftRightInput(),-1,1)
+        local pci = s.getAxisValue(1)
+        if pci == 0 then pci = s.getControlDeviceForwardInput() end
+        local finalPitchInput = uclamp(pitchInput + pitchInput2 + pci,-1,1)
+        local rci = s.getAxisValue(0)
+        if rci == 0 then rci = s.getControlDeviceYawInput() end
+        local finalRollInput = uclamp(rollInput + rollInput2 + rci,-1,1)
+        local yci = s.getAxisValue(2)
+        if yci == 0 then yci = s.getControlDeviceLeftRightInput() end
+        local finalYawInput = uclamp(yawInput + yawInput2 - yci,-1,1)
         
         local finalBrakeInput = (BrakeIsOn and 1) or 0
 
@@ -1314,7 +1350,7 @@ function APClass(Nav, c, u, atlas, vBooster, hover, telemeter_1, antigrav, dbHud
         end
 
         if antigrav then
-            antigravOn = (antigrav.isActive() == 1)
+            antigravOn = antigrav.isActive()
         end
 
         local deltaTick = time - lastApTickTime
@@ -1342,17 +1378,14 @@ function APClass(Nav, c, u, atlas, vBooster, hover, telemeter_1, antigrav, dbHud
         planet = sys:closestBody(cWorldPos)
         kepPlanet = Kep(planet)
         orbit = kepPlanet:orbitalParameters(cWorldPos, constructVelocity)
-        --if coreAltitude == 0 then
-            --coreAltitude = (worldPos - planet.center):len() - planet.radius
-        --end
         nearPlanet = u.getClosestPlanetInfluence() > 0 or (coreAltitude > 0 and coreAltitude < 200000)
 
         local gravity = planet:getGravity(cWorldPos):len() * coreMass
         targetRoll = 0
         local maxKinematicUp = C.getMaxThrustAlongAxis("ground", C.getOrientationUp())[1]
 
-        if sivl == 0 then
-            if isRemote() == 1 and holdingShift then
+        if not sivl then
+            if isRemote() and holdingShift then
                 if not Animating then
                     simulatedX = uclamp(simulatedX + deltaX/2,-ResolutionX/2,ResolutionX/2)
                     simulatedY = uclamp(simulatedY + deltaY/2,-ResolutionY/2,ResolutionY/2)
@@ -1366,7 +1399,7 @@ function APClass(Nav, c, u, atlas, vBooster, hover, telemeter_1, antigrav, dbHud
             simulatedX = uclamp(simulatedX + deltaX/2,-ResolutionX/2,ResolutionX/2)
             simulatedY = uclamp(simulatedY + deltaY/2,-ResolutionY/2,ResolutionY/2)
             mouseDistance = msqrt(simulatedX * simulatedX + simulatedY * simulatedY)
-            if not holdingShift and isRemote() == 0 then -- Draw deadzone circle if it's navigating
+            if not holdingShift and not isRemote() then -- Draw deadzone circle if it's navigating
                 local dx,dy = 1,1
                 if SelectedTab == "SCOPE" then
                     dx,dy = (scopeFOV/90),(scopeFOV/90)
@@ -1483,16 +1516,16 @@ function APClass(Nav, c, u, atlas, vBooster, hover, telemeter_1, antigrav, dbHud
                 BrakeLanding = true
             elseif (not ExternalAGG and antigravOn) or HoldAltitude < planet.spaceEngineMinAltitude then
                 if antigravOn then targetAltitude = antigrav.getBaseAltitude() end
-                if coreAltitude < (targetAltitude - 100) then
+                if coreAltitude < (targetAltitude - 200) then
                     VtPitch = 0
-                    upAmount = 15
+                    upAmount = 0.35
                     BrakeIsOn = false
                 elseif vSpd > 0 then
                     BrakeIsOn = "VTO Limit"
                     upAmount = 0
                 elseif vSpd < -30 then
                     BrakeIsOn = "VTO Fall"
-                    upAmount = 15
+                    upAmount = 1
                 elseif coreAltitude >= targetAltitude then
                     if antigravOn then 
                         if Autopilot or VectorToTarget then
@@ -1516,12 +1549,12 @@ function APClass(Nav, c, u, atlas, vBooster, hover, telemeter_1, antigrav, dbHud
                 if atmosDensity > 0.08 then
                     VtPitch = 0
                     BrakeIsOn = false
-                    upAmount = 20
+                    upAmount = 0.8
                 elseif atmosDensity < 0.08 and inAtmo then
                     BrakeIsOn = false
                     if SpaceEngineVertDn then
                         VtPitch = 0
-                        upAmount = 20
+                        upAmount = 0.8
                     else
                         upAmount = 0
                         VtPitch = 36
@@ -1964,8 +1997,8 @@ function APClass(Nav, c, u, atlas, vBooster, hover, telemeter_1, antigrav, dbHud
                     PlayerThrottle = round(AutopilotInterplanetaryThrottle,2)
                     apThrottleSet = true
                 end
-                local throttle = u.getThrottle()
-                if AtmoSpeedAssist then throttle = PlayerThrottle end
+                local throttle = (AtmoSpeedAssist and PlayerThrottle) or throtValue
+
                 -- If we're within warmup/8 seconds of needing to brake, cut throttle to handle warmdowns
                 -- Note that warmup/8 is kindof an arbitrary guess.  But it shouldn't matter that much.  
 
@@ -2109,8 +2142,7 @@ function APClass(Nav, c, u, atlas, vBooster, hover, telemeter_1, antigrav, dbHud
                         autoRoll = true
                     end
                 end
-                local throttle = u.getThrottle()
-                if AtmoSpeedAssist then throttle = PlayerThrottle end
+                local throttle = (AtmoSpeedAssist and PlayerThrottle) or throtValue
                 if throttle > 0 then
                     AutopilotAccelerating = true
                     if AutopilotStatus ~= "Accelerating" then
@@ -2694,7 +2726,7 @@ function APClass(Nav, c, u, atlas, vBooster, hover, telemeter_1, antigrav, dbHud
                     intersectBody, distance = AP.checkLOS((AutopilotTargetCoords-worldPos):normalize())
                     if intersectBody ~= nil then 
                         ibn = intersectBody.name
-                        if ibn ~= autopilotTargetPlanet.name and not inAtmo then
+                        if autopilotTargetPlanet and ibn ~= autopilotTargetPlanet.name and not inAtmo then
                             collisionAlertStatus = "Takeoff LOS blocked by "..ibn.." in "..getDistanceDisplayString(distance,1)
                             if ibn ~= planet.name then 
                                 AutopilotTargetCoords = planetTarget() 
@@ -2815,7 +2847,8 @@ function APClass(Nav, c, u, atlas, vBooster, hover, telemeter_1, antigrav, dbHud
 
             brakePID:inject(constructVelocity:len() - (adjustedAtmoSpeedLimit/3.6) - addThrust) 
             local calculatedBrake = uclamp(brakePID:get(),0,1)
-            if (inAtmo and vSpd < -80) or (atmosDensity > 0.005 or Reentry or finalLand) then -- Don't brake-limit them at <5% atmo if going up (or mostly up), it's mostly safe up there and displays 0% so people would be mad
+            if (inAtmo and vSpd < -80) or (atmosDensity > 0.005 or Reentry or finalLand) then
+                 -- Don't brake-limit them at <5% atmo if going up (or mostly up), it's mostly safe up there and displays 0% so people would be mad
                 brakeInput2 = calculatedBrake
             end
             if brakeInput2 > 0 then
@@ -2830,9 +2863,9 @@ function APClass(Nav, c, u, atlas, vBooster, hover, telemeter_1, antigrav, dbHud
 
             local autoNavigationEngineTags = ''
             local autoNavigationAcceleration = vec3()
-            
-
-            local verticalStrafeAcceleration = composeAxisAccelerationFromTargetSpeedV(axisCommandId.vertical,upAmount*1000)
+            local spd = 0
+            if upAmount ~= 0 then spd = adjustedAtmoSpeedLimit * upAmount end
+            local verticalStrafeAcceleration = composeAxisAccelerationFromTargetSpeedV(axisCommandId.vertical,spd)
             Nav:setEngineForceCommand("vertical airfoil , vertical ground ", verticalStrafeAcceleration, dontKeepCollinearity)
             --autoNavigationEngineTags = autoNavigationEngineTags .. ' , ' .. "vertical airfoil , vertical ground "
             --autoNavigationAcceleration = autoNavigationAcceleration + verticalStrafeAcceleration
@@ -2843,7 +2876,8 @@ function APClass(Nav, c, u, atlas, vBooster, hover, telemeter_1, antigrav, dbHud
             local longitudinalAcceleration = navCom:composeAxisAccelerationFromThrottle(
                                                     longitudinalEngineTags, axisCommandId.longitudinal)
 
-            local lateralAcceleration = composeAxisAccelerationFromTargetSpeed(axisCommandId.lateral, LeftAmount*1000)
+            if LeftAmount ~= 0 then spd = adjustedAtmoSpeedLimit * LeftAmount else spd = 0 end
+            local lateralAcceleration = composeAxisAccelerationFromTargetSpeed(axisCommandId.lateral, spd)
             autoNavigationEngineTags = autoNavigationEngineTags .. ' , ' .. "lateral airfoil , lateral ground " -- We handle the rest later
             autoNavigationAcceleration = autoNavigationAcceleration + lateralAcceleration
 
@@ -2862,13 +2896,13 @@ function APClass(Nav, c, u, atlas, vBooster, hover, telemeter_1, antigrav, dbHud
             if (UseExtra=="All" or UseExtra=="Vertical") then verticalStrafeEngineTags = verticalStrafeEngineTags..ExtraVerticalTags end
 
             -- Vertical also handles the non-airfoils separately
-            if upAmount ~= 0 or (BrakeLanding and BrakeIsOn) or (not GearExtended and not stablized) then
+            if (upAmount ~= 0 or vertAxis ~= 0) or (BrakeLanding and BrakeIsOn) or (not GearExtended and not stablized) then
                 Nav:setEngineForceCommand(verticalStrafeEngineTags, verticalStrafeAcceleration, keepCollinearity)
             else
                 Nav:setEngineForceCommand(verticalStrafeEngineTags, vec3(), keepCollinearity) -- Reset vertical engines but not airfoils or ground
             end
 
-            if LeftAmount ~= 0 then
+            if (LeftAmount ~= 0 or latAxis ~= 0) then
                 Nav:setEngineForceCommand(lateralStrafeEngineTags, lateralAcceleration, keepCollinearity)
             else
                 Nav:setEngineForceCommand(lateralStrafeEngineTags, vec3(), keepCollinearity) -- Reset vertical engines but not airfoils or ground
@@ -2952,7 +2986,7 @@ function APClass(Nav, c, u, atlas, vBooster, hover, telemeter_1, antigrav, dbHud
             if (verticalCommandType == axisCommandType.byThrottle)  then
                 local verticalStrafeAcceleration = navCom:composeAxisAccelerationFromThrottle(
                                                     verticalStrafeEngineTags, axisCommandId.vertical)
-                if upAmount ~= 0 or (BrakeLanding and BrakeIsOn) then
+                if (upAmount ~= 0 or vertAxis ~= 0) or (BrakeLanding and BrakeIsOn) then
                     Nav:setEngineForceCommand(verticalStrafeEngineTags, verticalStrafeAcceleration, keepCollinearity, 'airfoil',
                         'ground', '', tolerancePercentToSkipOtherPriorities)
                 else
@@ -2963,7 +2997,7 @@ function APClass(Nav, c, u, atlas, vBooster, hover, telemeter_1, antigrav, dbHud
                     '', '', tolerancePercentToSkipOtherPriorities)
                 end
             elseif (verticalCommandType == axisCommandType.byTargetSpeed) then
-                if upAmount < 0 then 
+                if upAmount < 0 or vertAxis < 0 then 
                     Nav:setEngineForceCommand('hover', vec3(), keepCollinearity) 
                 end
                 local verticalAcceleration = navCom:composeAxisAccelerationFromTargetSpeed(
@@ -3007,8 +3041,7 @@ function APClass(Nav, c, u, atlas, vBooster, hover, telemeter_1, antigrav, dbHud
                     Nav:toggleBoosters()
                 end
             else -- Atmosphere Rocket Boost Assist Not in Cruise Control by Azraeil
-                local throttle = u.getThrottle()
-                if AtmoSpeedAssist then throttle = PlayerThrottle*100 end
+                local throttle = (AtmoSpeedAssist and PlayerThrottle*100) or throtValue
                 local targetSpeed = (throttle/100)
                 if not inAtmo then
                     targetSpeed = targetSpeed * adjMaxGameVelocity
